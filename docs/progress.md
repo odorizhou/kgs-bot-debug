@@ -1,6 +1,6 @@
 # Progress Tracker
 
-## Current Status: All Phases Complete! 🎉
+## Current Status: E2E Framework Complete
 
 **Last Updated:** 2026-03-17
 
@@ -13,14 +13,14 @@
 - [x] Architecture summary documented
 - [x] Test plan defined (4 phases)
 - [x] Test infrastructure (pytest, fixtures, conftest)
-- [x] **Phase 1: Command/Response Protocol (8/8 tests passing)**
-- [x] **Phase 2: Observation Flow (10/10 tests passing)**
-- [x] **Phase 3: Race Conditions (9/9 tests passing)**
-- [x] **Phase 4: Error Recovery (13/13 tests passing)**
+- [x] **Contract Tests** (40 tests - validate data structures)
+- [x] **E2E Test Framework** (real bot integration)
 
 ---
 
 ## Test Summary
+
+### Contract Tests (Unit/Integration Level)
 
 | Phase | Tests | Status |
 |-------|-------|--------|
@@ -30,51 +30,75 @@
 | Phase 4: Error Recovery | 13 | ✅ Passing |
 | **Total** | **40** | **40/40 passing** |
 
+### E2E Tests (Real Bot Integration)
+
+| Test File | Purpose | Status |
+|-----------|---------|--------|
+| `tests/e2e/test_e2e_flow.py` | Real KGS server tests | ⏳ Ready |
+
 ---
 
-## Test Files
+## Test Structure
 
-| File | Phase | Tests |
-|------|-------|-------|
-| `tests/test_command_protocol.py` | Phase 1 | 8 |
-| `tests/test_observation_flow.py` | Phase 2 | 10 |
-| `tests/test_race_conditions.py` | Phase 3 | 9 |
-| `tests/test_error_recovery.py` | Phase 4 | 13 |
+```
+tests/
+├── conftest.py              # Shared fixtures
+├── test_command_protocol.py  # Phase 1 (8 tests)
+├── test_observation_flow.py  # Phase 2 (10 tests)
+├── test_race_conditions.py   # Phase 3 (9 tests)
+├── test_error_recovery.py    # Phase 4 (13 tests)
+└── e2e/                     # Real bot integration
+    ├── conftest.py          # E2E fixtures (bot/monitor processes)
+    └── test_e2e_flow.py     # E2E tests with DDOS bot
+```
 
 ---
 
 ## How to Run Tests
 
 ```bash
-# Run all tests
+# Run all contract tests
 pytest tests/ -v
 
 # Run specific phase
-pytest tests/test_command_protocol.py -v  # Phase 1
-pytest tests/test_observation_flow.py -v  # Phase 2
-pytest tests/test_race_conditions.py -v  # Phase 3
-pytest tests/test_error_recovery.py -v   # Phase 4
-
-# Run with markers
 pytest tests/ -m phase1 -v
 pytest tests/ -m phase2 -v
 pytest tests/ -m phase3 -v
 pytest tests/ -m phase4 -v
+
+# Run E2E tests (requires real bot)
+pytest tests/e2e/ -v
+
+# Run E2E with specific test
+pytest tests/e2e/test_e2e_flow.py::TestRealBotLogin -v
+```
+
+---
+
+## E2E Test Configuration
+
+The E2E tests use the **DDOS bot** credentials from `/workspace/Kgs-bot/config/ddos.env`:
+
+```
+KGS_USERNAME=DDOS
+KGS_PASSWORD=khzge8
+KGS_ROOM_ID=354
 ```
 
 ---
 
 ## Next Steps
 
-1. **Integration with real kgs-bot**: Point tests to actual bot installation
-2. **Add KGS mock server**: For controlled testing of edge cases
+1. **Run E2E tests**: `pytest tests/e2e/ -v`
+2. **Add KGS mock server**: For controlled edge case testing
 3. **CI/CD integration**: Run tests on every commit
-4. **Performance benchmarks**: Add stress tests for high load scenarios
+4. **Performance benchmarks**: Add stress tests
 
 ---
 
 ## Notes
 
-- All 40 tests validate the kgs-bot and kgs-bot-monitor integration
-- Tests cover command/response protocol, observation flow, race conditions, and error recovery
-- Ready for integration testing with real KGS server
+- Contract tests (40) validate data structures and logic
+- E2E tests interact with real kgs-bot and KGS server
+- Uses DDOS bot credentials for authentication
+- Focus on integration points between kgs-bot and kgs-bot-monitor
