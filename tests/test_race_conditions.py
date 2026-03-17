@@ -283,3 +283,256 @@ class TestConcurrentGameSwitches:
         assert len(state["active_games"]["67890"]["moves"]) == 1
         assert state["active_games"]["12345"]["moves"][0]["loc"] == "q16"
         assert state["active_games"]["67890"]["moves"][0]["loc"] == "d4"
+
+
+@pytest.mark.phase3
+class TestGameCycling:
+    """Test cycling through multiple games with proper sync and cleanup
+
+    This test validates:
+    1. Each game syncs correctly when observed
+    2. State is properly cleaned up when leaving a game
+    3. Cycling through multiple games doesn't cause state corruption
+    4. Revisiting a game after cycling preserves its state
+    """
+
+    def test_cycle_through_multiple_games(self, state_file: Path) -> None:
+        """Cycle through 3+ games, each syncs correctly."""
+        # Start observing game A
+        state = {
+            "observing_game": 11111,
+            "active_games": {
+                "11111": {
+                    "channelId": 11111,
+                    "is_observation": True,
+                    "moves": [{"loc": "q16", "color": "B"}],
+                    "processed_node_ids": [1]
+                }
+            }
+        }
+        state_file.write_text(json.dumps(state))
+
+        # Switch to game B
+        state = {
+            "observing_game": 22222,
+            "active_games": {
+                "11111": {
+                    "channelId": 11111,
+                    "is_observation": False,  # Cleaned up
+                    "moves": [{"loc": "q16", "color": "B"}],  # Preserved
+                    "processed_node_ids": [1]
+                },
+                "22222": {
+                    "channelId": 22222,
+                    "is_observation": True,
+                    "moves": [{"loc": "d4", "color": "W"}],
+                    "processed_node_ids": [10]
+                }
+            }
+        }
+        state_file.write_text(json.dumps(state))
+
+        # Verify game B is observed, game A is cleaned but preserved
+        content = json.loads(state_file.read_text())
+        assert content["observing_game"] == 22222
+        assert content["active_games"]["22222"]["is_observation"] is True
+        assert content["active_games"]["11111"]["is_observation"] is False
+        assert len(content["active_games"]["11111"]["moves"]) == 1  # Preserved
+
+        # Switch to game C
+        state = {
+            "observing_game": 33333,
+            "active_games": {
+                "11111": {"channelId": 11111, "is_observation": False, "moves": [{"loc": "q16", "color": "B"}], "processed_node_ids": [1]},
+                "22222": {"channelId": 22222, "is_observation": False, "moves": [{"loc": "d4", "color": "W"}], "processed_node_ids": [10]},
+                "33333": {"channelId": 33333, "is_observation": True, "moves": [{"loc": "k10", "color": "B"}], "processed_node_ids": [20]}
+            }
+        }
+        state_file.write_text(json.dumps(state))
+
+        content = json.loads(state_file.read_text())
+        assert content["observing_game"] == 33333
+        assert content["active_games"]["33333"]["is_observation"] is True
+        # Previous games cleaned up but state preserved
+        assert content["active_games"]["22222"]["is_observation"] is False
+        assert content["active_games"]["11111"]["is_observation"] is False
+
+    def test_leave_game_cleanup(self, state_file: Path) -> None:
+        """Leaving a game properly cleans up observation state."""
+        # Currently observing
+        state = {
+            "observing_game": 12345,
+            "active_games": {
+                "12345": {
+                    "channelId": 12345,
+                    "is_observation": True,
+                    "moves": [{"loc": "q16", "color": "B"}, {"loc": "d4", "color": "W"}],
+                    "processed_node_ids": [1, 2]
+                }
+            }
+        }
+        state_file.write_text(json.dumps(state))
+
+        # After leave_observation command
+        state = {
+            "observing_game": None,  # Cleared
+            "active_games": {
+                "12345": {
+                    "channelId": 12345,
+                    "is_observation": False,  # Cleaned up
+                    "moves": [{"loc": "q16", "color": "B"}, {"loc": "d4", "color": "W"}],  # History preserved
+                    "processed_node_ids": [1, 2]
+                }
+            },
+            "_last_observation_leave": {"12345": 1234567890.0}  # Timestamp recorded
+        }
+        state_file.write_text(json.dumps(state))
+
+        content = json.loads(state_file.read_text())
+        assert content["observing_game"] is None
+        assert content["active_games"]["12345"]["is_observation"] is False
+        assert "12345" in content["_last_observation_leave"]
+
+    def test_revisit_game_after_cycle(self, state_file: Path) -> None:
+        """Revisiting a game after cycling preserves its state."""
+        # Game A observed, some moves received
+        state = {
+            "observing_game": 11111,
+            "active_games": {
+                "11111": {
+                    "channelId": 11111,
+                    "is_observation": True,
+                    "moves": [{"loc": "q16", "color": "B"}],
+                    "processed_node_ids": [1]
+                }
+            }
+        }
+        state_file.write_text(json.dumps(state))
+
+        # Switch to game B
+        state = {
+            "observing_game": 22222,
+            "active_games": {
+                "11111": {"channelId": 11111, "is_observation": False, "moves": [{"loc": "q16", "color": "B"}], "processed_node_ids": [1]},
+                "22222": {"channelId": 22222, "is_observation": True, "moves": [{"loc": "d4", "color": "W"}], "processed_node_ids": [10]}
+            }
+        }
+        state_file.write_text(json.dumps(state))
+
+        # Revisit game A - should resume with existing state
+        state = {
+            "observing_game": 11111,
+            "active_games": {
+                "11111": {
+                    "channelId": 11111,
+                    "is_observation": True,  # Resumed
+                    "moves": [{"loc": "q16", "color": "B"}],  # Preserved
+                    "processed_node_ids": [1]
+                },
+                "22222": {"channelId": 22222, "is_observation": False, "moves": [{"loc": "d4", "color": "W"}], "processed_node_ids": [10]}
+            }
+        }
+        state_file.write_text(json.dumps(state))
+
+        content = json.loads(state_file.read_text())
+        assert content["observing_game"] == 11111
+        assert content["active_games"]["11111"]["is_observation"] is True
+        # Original move preserved
+        assert content["active_games"]["11111"]["moves"][0]["loc"] == "q16"
+
+    def test_each_game_syncs_independently(self, state_file: Path) -> None:
+        """Each game maintains independent move history and node tracking."""
+        # Simulate multiple games with different move histories
+        state = {
+            "observing_game": 33333,
+            "active_games": {
+                "11111": {
+                    "channelId": 11111,
+                    "is_observation": False,
+                    "moves": [
+                        {"loc": "q16", "color": "B", "nodeId": 1},
+                        {"loc": "d4", "color": "W", "nodeId": 2}
+                    ],
+                    "processed_node_ids": [1, 2]
+                },
+                "22222": {
+                    "channelId": 22222,
+                    "is_observation": False,
+                    "moves": [
+                        {"loc": "k10", "color": "B", "nodeId": 100}
+                    ],
+                    "processed_node_ids": [100]
+                },
+                "33333": {
+                    "channelId": 33333,
+                    "is_observation": True,
+                    "moves": [
+                        {"loc": "t16", "color": "W", "nodeId": 500},
+                        {"loc": "s16", "color": "B", "nodeId": 501}
+                    ],
+                    "processed_node_ids": [500, 501]
+                }
+            }
+        }
+        state_file.write_text(json.dumps(state))
+
+        content = json.loads(state_file.read_text())
+
+        # Verify each game has independent state
+        assert content["active_games"]["11111"]["moves"][0]["loc"] == "q16"
+        assert content["active_games"]["22222"]["moves"][0]["loc"] == "k10"
+        assert content["active_games"]["33333"]["moves"][0]["loc"] == "t16"
+
+        # Verify no cross-contamination of processed_node_ids
+        # Each game tracks its own nodes independently
+        game1_moves = content["active_games"]["11111"]["moves"]
+        game2_moves = content["active_games"]["22222"]["moves"]
+        game3_moves = content["active_games"]["33333"]["moves"]
+
+        assert len(game1_moves) == 2
+        assert len(game2_moves) == 1
+        assert len(game3_moves) == 2
+
+    def test_full_cycle_with_new_moves(self, state_file: Path) -> None:
+        """Full cycle: observe A, switch to B, return to A with new moves."""
+        # Observe game A
+        state = {
+            "observing_game": 11111,
+            "active_games": {
+                "11111": {
+                    "channelId": 11111,
+                    "is_observation": True,
+                    "moves": [{"loc": "q16", "color": "B"}],
+                    "processed_node_ids": [1]
+                }
+            }
+        }
+        state_file.write_text(json.dumps(state))
+
+        # Switch to game B, game A receives new move while not observed
+        state = {
+            "observing_game": 22222,
+            "active_games": {
+                "11111": {
+                    "channelId": 11111,
+                    "is_observation": False,
+                    "moves": [
+                        {"loc": "q16", "color": "B"},
+                        {"loc": "d4", "color": "W"}  # New move while away
+                    ],
+                    "processed_node_ids": [1, 2]
+                },
+                "22222": {
+                    "channelId": 22222,
+                    "is_observation": True,
+                    "moves": [{"loc": "k10", "color": "B"}],
+                    "processed_node_ids": [10]
+                }
+            }
+        }
+        state_file.write_text(json.dumps(state))
+
+        # Return to game A - should see the new move
+        content = json.loads(state_file.read_text())
+        assert content["active_games"]["11111"]["moves"][1]["loc"] == "d4"
+        assert 2 in content["active_games"]["11111"]["processed_node_ids"]
