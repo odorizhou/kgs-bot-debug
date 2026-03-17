@@ -11,8 +11,8 @@
 | Test Type | Tests | Status |
 |-----------|-------|--------|
 | Contract Tests | 40 | ✅ All Passing |
-| E2E Tests | 5 | ✅ All Passing |
-| **Total** | **45** | **45/45 passing** |
+| E2E Tests | 9 | ✅ All Passing |
+| **Total** | **49** | **49/49 passing** |
 
 ---
 
@@ -29,6 +29,8 @@
 
 ### E2E Tests (Real Bot + KGS Server)
 
+#### Flow Tests (test_e2e_flow.py)
+
 | Test | Description | Status |
 |------|-------------|--------|
 | test_bot_starts_and_logs_in | Bot login to KGS | ✅ Passing |
@@ -36,6 +38,15 @@
 | test_rapid_game_switch | Race condition test | ✅ Passing |
 | test_command_error_handling | Error recovery | ✅ Passing |
 | test_invalid_command_name | Unknown command handling | ✅ Passing |
+
+#### State Sync Tests (test_game_state_sync.py)
+
+| Test | Description | Status |
+|------|-------------|--------|
+| test_game_metadata_captured | Board size, komi, rules, players | ✅ Passing |
+| test_move_history_synced | Historical moves from GAME_JOIN | ✅ Passing |
+| test_handicap_stones_captured | Handicap stones from SGF | ✅ Passing |
+| test_board_state_valid | Board state reconstruction | ✅ Passing |
 
 ---
 
@@ -50,7 +61,8 @@ tests/
 ├── test_error_recovery.py    # Phase 4 (13 tests)
 └── e2e/                     # Real bot integration
     ├── conftest.py          # E2E fixtures (bot/monitor processes)
-    └── test_e2e_flow.py     # E2E tests (5 tests)
+    ├── test_e2e_flow.py     # Flow tests (5 tests)
+    └── test_game_state_sync.py  # State sync tests (4 tests)
 ```
 
 ---
@@ -59,7 +71,7 @@ tests/
 
 ```bash
 # Run all contract tests
-pytest tests/ -v
+pytest tests/test_*.py -v
 
 # Run specific phase
 pytest tests/ -m phase1 -v
@@ -70,8 +82,11 @@ pytest tests/ -m phase4 -v
 # Run E2E tests (requires real bot)
 pytest tests/e2e/ -v
 
+# Run specific E2E test file
+pytest tests/e2e/test_game_state_sync.py -v
+
 # Run all tests
-pytest tests/ tests/e2e/ -v
+pytest tests/test_*.py tests/e2e/ -v
 ```
 
 ---
