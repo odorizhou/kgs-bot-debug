@@ -13,7 +13,9 @@
 | Contract Tests | 40 | ✅ All Passing |
 | E2E Flow Tests | 5 | ✅ All Passing |
 | E2E State Sync Tests | 4 | ✅ All Passing |
-| **Total** | **49** | **49/49 passing** |
+| E2E Game Cycling Tests | 2 | ✅ All Passing |
+| E2E Analysis Sync Tests | 2 | ✅ All Passing |
+| **Total** | **53** | **52/53 passing** (1 flaky) |
 
 ---
 
@@ -45,9 +47,23 @@
 | Test | Description | Status |
 |------|-------------|--------|
 | test_game_metadata_captured | Board size, komi, rules, players | ✅ Passing |
-| test_move_history_synced | Historical moves from GAME_JOIN | ✅ Passing |
+| test_move_history_synced | Historical moves from GAME_JOIN | ⚠️ Flaky (timeout) |
 | test_handicap_stones_captured | Handicap stones from SGF | ✅ Passing |
 | test_board_state_valid | Board state reconstruction | ✅ Passing |
+
+#### Game Cycling Tests (test_game_cycling.py)
+
+| Test | Description | Status |
+|------|-------------|--------|
+| test_cycle_through_multiple_games | Cycle through 5 games | ✅ Passing |
+| test_state_isolation_between_games | State isolation | ✅ Passing |
+
+#### Analysis Sync Tests (test_analysis_sync.py)
+
+| Test | Description | Status |
+|------|-------------|--------|
+| test_analysis_engine_produces_results | Analysis daemon connection | ✅ Passing |
+| test_analysis_updates_with_new_moves | Incremental analysis | ✅ Passing |
 
 ---
 
@@ -63,7 +79,9 @@ tests/
 └── e2e/                     # Real bot integration
     ├── conftest.py          # E2E fixtures (bot/monitor processes)
     ├── test_e2e_flow.py     # Flow tests (5 tests)
-    └── test_game_state_sync.py  # State sync tests (4 tests)
+    ├── test_game_state_sync.py  # State sync tests (4 tests)
+    ├── test_game_cycling.py   # Game cycling tests (2 tests)
+    └── test_analysis_sync.py  # Analysis sync tests (2 tests)
 ```
 
 ---
@@ -85,6 +103,8 @@ pytest tests/e2e/ -v
 
 # Run specific E2E test file
 pytest tests/e2e/test_game_state_sync.py -v
+pytest tests/e2e/test_game_cycling.py -v
+pytest tests/e2e/test_analysis_sync.py -v
 
 # Run all tests
 pytest tests/test_*.py tests/e2e/ -v
@@ -151,4 +171,59 @@ Black: sofya213 (6k)
 White: SwissBot1 (3d)
 
 Historical Moves Synced: 94 moves
+```
+
+---
+
+## Key Findings from Game Cycling Tests
+
+### What Works:
+- **Multiple game observation** - Bot successfully cycles through 5 different games
+- **State preservation** - Each game maintains independent state
+- **Game variety** - Tests games with different properties:
+  - Board sizes: 17x17, 19x19
+  - Move counts: 0-114 moves
+  - Handicap: 0-6 stones
+  - Komi: 0.5, 7.5
+
+### Example Cycling Results:
+```
+Game 1: spring vs Zarybot2, 76 moves, 19x19, Komi=0.5, Handicap=0
+Game 2: ayabot003 vs stoogl, 25 moves, 19x19, Komi=0.5, Handicap=0
+Game 3: N/A vs N/A, 0 moves, 19x19, Komi=7.5, Handicap=0
+Game 4: nexdor vs ayabot002, 16 moves, 19x19, Komi=0.5, Handicap=3
+Game 5: johns vs Swissbot5, 114 moves, 17x17, Komi=7.5, Handicap=0
+```
+
+---
+
+## Key Findings from Analysis Sync Tests
+
+### Analysis Engine Design:
+- **Two-phase analysis**:
+  1. **Initial analysis** (async): Analyzes last 50 moves when joining game
+  2. **Incremental analysis** (real-time): Analyzes new moves as GAME_UPDATE arrives
+
+- **Analysis daemon**: Uses Unix socket (`/run/ddos_analysis.sock`)
+- **Session management**: Each game gets unique session ID (`channel_<channel_id>`)
+
+### What Works:
+- **Daemon connection** - Socket available and connected
+- **Session initialization** - Analysis session created for observed games
+- **Game state captured** - All moves synced (38 moves in test)
+
+### Issues Identified:
+1. **Async analysis timing** - Initial analysis runs in background thread
+2. **Idle games** - No analysis results if game has no new moves
+3. **Analysis requires active game** - Need GAME_UPDATE messages to trigger incremental analysis
+
+### Example Analysis Output:
+```
+Channel ID: 101682309
+Is observation: True
+Moves captured: 38
+Board size: 19x19
+Komi: 0.5
+Handicap: 4
+Analysis daemon socket: ✓ Available
 ```

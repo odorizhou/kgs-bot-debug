@@ -48,6 +48,8 @@ KGS_PASSWORD={KGS_PASSWORD}
 KGS_BOT_BASEDIR=/workspace
 KGS_ROOM_ID={KGS_ROOM_ID}
 KGS_PRIVATE_MODE=false
+# Use existing analysis daemon (connects to /run/ddos_analysis.sock)
+ANALYSIS_DAEMON_ENABLED=true
 """
         env_file.write_text(env_content)
 
@@ -220,3 +222,58 @@ def wait_result(wait_for_result):
 def wait_state(wait_for_state):
     """Convenience fixture for waiting for state."""
     return wait_state
+
+
+@pytest.fixture(autouse=True)
+def cleanup_command_files(test_bot_id: str):
+    """Clean up command file before each test to prevent stale commands."""
+    from pathlib import Path
+    import time
+
+    TEST_RUN_DIR = Path("/workspace/Kgs-bot/run")
+    command_file = TEST_RUN_DIR / f"{test_bot_id}_command.json"
+    result_file = TEST_RUN_DIR / f"{test_bot_id}_command_result.json"
+
+    # Wait for any pending bot processing to complete
+    time.sleep(0.5)
+
+    # Only clear command file - let result file be handled by command ID matching
+    if command_file.exists():
+        command_file.write_text("")
+
+    yield
+
+
+def log_game_data(test_name: str, game_data: dict, channel_id: str, moves: list = None):
+    """Log game data to a persistent file."""
+    import datetime
+
+    logs_dir = Path("/workspace/kgs-bot-debug/logs/e2e_test_bot/game-data")
+    logs_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = logs_dir / f"{test_name}_{timestamp}.json"
+
+    log_entry = {
+        "timestamp": datetime.datetime.now().isoformat(),
+        "test_name": test_name,
+        "channel_id": channel_id,
+        "game_data": game_data,
+        "moves_count": len(moves) if moves else 0
+    }
+
+    if moves:
+        log_entry["moves"] = moves
+
+    log_file.write_text(json.dumps(log_entry, indent=2))
+    print(f"\n[LOG] Game data saved to: {log_file}")
+
+    # Also append to a summary file
+    summary_file = logs_dir / "summary.txt"
+    summary_line = f"\n{datetime.datetime.now().isoformat()} | {test_name} | Channel {channel_id} | Moves: {len(moves) if moves else 0}\n"
+
+    # Read existing summary and append
+    if summary_file.exists():
+        summary_file.write_text(summary_file.read_text() + summary_line)
+    else:
+        summary_file.write_text("=" * 60 + summary_line)

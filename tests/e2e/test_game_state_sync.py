@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.e2e.conftest import wait_for_result, BotProcess
+from tests.e2e.conftest import wait_for_result, BotProcess, log_game_data
 
 
 def print_game_info(game, channel_id):
@@ -196,6 +196,10 @@ class TestGameSettingsCapture:
 
                 # Print game info
                 print_game_info(game, channel_id)
+
+                # Log to file
+                log_game_data("metadata", game, channel_id, game.get("moves", []))
+
                 print("\n✓ Game metadata captured successfully!")
             else:
                 print(f"\nGame observation not completed for channel {channel_id}")
@@ -329,6 +333,9 @@ class TestHistoricalMovesSync:
                     if "move_number" in game:
                         assert len(moves) == game["move_number"], \
                             f"Move count mismatch: {len(moves)} vs {game['move_number']}"
+
+                    # Log to file
+                    log_game_data("history", game, channel_id, moves)
                 else:
                     print(f"\nNo game data for channel {channel_id} in state")
             else:
@@ -443,6 +450,9 @@ class TestHandicapStonesSync:
 
                     # Print handicap info
                     print(f"\nHandicap: {game.get('handicap', 'N/A')}")
+
+                    # Log to file
+                    log_game_data("handicap", game, channel_id, game.get("moves", []))
 
                     # Handicap should be captured (0 for non-handicap games)
                     if "handicap" in game:
@@ -576,6 +586,9 @@ class TestBoardStateReconstruction:
                             assert len(loc) >= 2, f"Invalid move location: {loc}"
 
                     print("All moves have valid coordinates")
+
+                    # Log to file
+                    log_game_data("board_state", game, channel_id, moves)
 
                     # Print all moves
                     print_moves(moves, "All Moves")
