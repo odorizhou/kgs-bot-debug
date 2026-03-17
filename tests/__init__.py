@@ -1,0 +1,1 @@
+"""E2E tests for kgs-bot and kgs-bot-monitor integration."""
