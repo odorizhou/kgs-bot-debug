@@ -19,8 +19,8 @@ KGS_ROOM_ID = 354
 # Paths
 KGS_BOT_PATH = Path("/workspace/Kgs-bot")
 MONITOR_PATH = Path("/workspace/kgs-bot-monitor")
-TEST_RUN_DIR = Path("/workspace/kgs-bot-debug/run")
-TEST_LOGS_DIR = Path("/workspace/kgs-bot-debug/logs")
+TEST_RUN_DIR = KGS_BOT_PATH / "run"  # Bot writes to its own run dir
+TEST_LOGS_DIR = KGS_BOT_PATH / "logs"
 
 
 class BotProcess:
@@ -37,10 +37,11 @@ class BotProcess:
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create env file for test
-        env_file = self.run_dir / f"{self.bot_id}.env"
-        env_content = f"""
-BOT_MODE=main
+        # Create env file for test - must be in KGS_BOT_PATH/config/
+        config_dir = KGS_BOT_PATH / "config"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        env_file = config_dir / f"{self.bot_id}.env"
+        env_content = f"""BOT_MODE=main
 BOT_AUTO_START=false
 KGS_USERNAME={KGS_USERNAME}
 KGS_PASSWORD={KGS_PASSWORD}
@@ -65,7 +66,7 @@ KGS_PRIVATE_MODE=false
         )
 
         # Wait for bot to start
-        time.sleep(2)
+        time.sleep(3)
         return self.is_running()
 
     def is_running(self) -> bool:
