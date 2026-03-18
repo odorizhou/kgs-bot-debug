@@ -208,6 +208,11 @@ class TestGameSettingsCapture:
                 print("TEST PASSED (game data received, state write may be debounced)")
 
 
+def ts() -> str:
+    """Timestamp helper for logging"""
+    return time.strftime("%H:%M:%S")
+
+
 class TestHistoricalMovesSync:
     """Test: Historical moves are synced correctly"""
 
@@ -220,18 +225,24 @@ class TestHistoricalMovesSync:
         state_file: Path
     ) -> None:
         """Complete move history is synced from GAME_JOIN."""
+        test_start = time.time()
+        def elapsed(): return time.time() - test_start
+
         # Verify bot is running
         assert bot_process.is_running(), "Bot process not running"
 
         # Wait for bot to be ready
+        print(f"[{ts()} T+{elapsed():.1f}s] Waiting for bot to be ready...")
         for _ in range(30):
             if state_file.exists():
+                print(f"[{ts()} T+{elapsed():.1f}s] Bot ready, state file exists")
                 break
             time.sleep(1)
 
         # Login to KGS
-        print("Logging in to KGS...")
+        print(f"[{ts()} T+{elapsed():.1f}s] Logging in to KGS...")
         login_id = "login-history"
+        login_cmd_time = time.time()
         command_file.write_text(json.dumps({
             "id": login_id,
             "command": "login",
@@ -251,15 +262,22 @@ class TestHistoricalMovesSync:
                         break
             time.sleep(0.5)
 
+        login_result_time = time.time()
+        print(f"[{ts()} T+{elapsed():.1f}s] Login result received after {login_result_time - login_cmd_time:.1f}s")
+
         assert result is not None, "No result from login"
         assert result.get("ok") is True, f"Login failed: {result.get('message')}"
-        print("Login successful!")
+        print(f"[{ts()} T+{elapsed():.1f}s] Login successful!")
 
         # Wait for connection
+        print(f"[{ts()} T+{elapsed():.1f}s] Waiting 5s for connection...")
         time.sleep(5)
+        print(f"[{ts()} T+{elapsed():.1f}s] Connection wait complete")
 
         # Get active games
+        print(f"[{ts()} T+{elapsed():.1f}s] Requesting active games...")
         get_games_id = "get-games"
+        get_games_cmd_time = time.time()
         command_file.write_text(json.dumps({
             "id": get_games_id,
             "command": "get_active_games",
@@ -279,6 +297,9 @@ class TestHistoricalMovesSync:
                         break
             time.sleep(0.5)
 
+        get_games_result_time = time.time()
+        print(f"[{ts()} T+{elapsed():.1f}s] Get games result after {get_games_result_time - get_games_cmd_time:.1f}s")
+
         assert result is not None, "No result from get_active_games"
         print(f"get_active_games result: ok={result.get('ok')}, message={result.get('message')}")
 
@@ -290,9 +311,11 @@ class TestHistoricalMovesSync:
             # Pick first game
             game = games[0]
             channel_id = str(game.get("channelId"))
-            print(f"\nFound game: channelId={channel_id}")
+            print(f"[{ts()} T+{elapsed():.1f}s] Found game: channelId={channel_id}")
 
             # Send observe command
+            print(f"[{ts()} T+{elapsed():.1f}s] Sending observe command...")
+            observe_cmd_time = time.time()
             command_file.write_text(json.dumps({
                 "id": "observe-history",
                 "command": "observe_game",
@@ -300,46 +323,77 @@ class TestHistoricalMovesSync:
             }))
 
             result = wait_for_result(result_file, timeout=30.0)
+            observe_result_time = time.time()
+            print(f"[{ts()} T+{elapsed():.1f}s] Observe result after {observe_result_time - observe_cmd_time:.1f}s")
+
             assert result is not None
             assert result.get("ok") is True, f"Observe failed: {result.get('message')}"
 
-            # Wait for GAME_JOIN with full history
-            time.sleep(5)
+            # Wait for GAME_JOIN with full history - use polling loop instead of fixed sleep
+            # The observe handler takes ~4.5s (room join + poll), then GAME_JOIN processing takes more time
+            print(f"[{ts()} T+{elapsed():.1f}s] Waiting for GAME_JOIN and state update...")
+            wait_start = time.time()
+            game_found = False
+            last_state_time = 0
+            game_data = None
+            moves = []
 
-            # Verify moves were synced
-            if state_file.exists():
-                state = json.loads(state_file.read_text())
-                active = state.get("active_games", {})
+            # Poll for up to 60 seconds for game to appear in state
+            for i in range(120):  # 120 iterations * 0.5s = 60 seconds
+                time.sleep(0.5)
 
-                if str(channel_id) in active:
-                    game = active[str(channel_id)]
-                    moves = game.get("moves", [])
+                # Check if state file was updated recently
+                if state_file.exists():
+                    try:
+                        mtime = state_file.stat().st_mtime
+                        if mtime > last_state_time:
+                            last_state_time = mtime
+                            state = json.loads(state_file.read_text())
+                            active = state.get("active_games", {})
+                            if str(channel_id) in active:
+                                game_found = True
+                                game_data = active[str(channel_id)]
+                                moves = game_data.get("moves", [])
+                                print(f"[{ts()} T+{elapsed():.1f}s] Game found in state after {i * 0.5:.1f}s, {len(moves)} moves")
+                                break
+                    except Exception as e:
+                        pass
 
-                    # Print game info
-                    print_game_info(game, channel_id)
+            state_check_time = time.time()
 
-                    # Print moves
-                    print_moves(moves, "Historical Moves Synced")
+            if game_found and game_data:
+                print(f"[{ts()} T+{elapsed():.1f}s] Game found in state after {state_check_time - observe_result_time:.1f}s from observe result")
 
-                    # Verify moves are present
-                    if moves:
-                        # Check move format
-                        for i, move in enumerate(moves[:5]):
-                            assert "moveNumber" in move or "number" in move or \
-                                   "loc" in move or "point" in move, \
-                                f"Move {i} missing required fields"
+                # Print game info
+                print_game_info(game_data, channel_id)
 
-                    # Check move count matches move_number field if present
-                    if "move_number" in game:
-                        assert len(moves) == game["move_number"], \
-                            f"Move count mismatch: {len(moves)} vs {game['move_number']}"
+                # Print moves
+                print_moves(moves, "Historical Moves Synced")
 
-                    # Log to file
-                    log_game_data("history", game, channel_id, moves)
-                else:
-                    print(f"\nNo game data for channel {channel_id} in state")
+                # Verify moves are present
+                if moves:
+                    # Check move format
+                    for i, move in enumerate(moves[:5]):
+                        assert "moveNumber" in move or "number" in move or \
+                               "loc" in move or "point" in move, \
+                            f"Move {i} missing required fields"
+
+                # Check move count matches move_number field if present
+                if "move_number" in game_data:
+                    assert len(moves) == game_data["move_number"], \
+                        f"Move count mismatch: {len(moves)} vs {game_data['move_number']}"
+
+                # Log to file
+                log_game_data("history", game_data, channel_id, moves)
+                print(f"[{ts()} T+{elapsed():.1f}s] Test PASSED - total time: {elapsed():.1f}s")
             else:
-                print("\nNo active games available")
+                print(f"[{ts()} T+{elapsed():.1f}s] FAIL: No game data for channel {channel_id} in state after {elapsed():.1f}s")
+                if state_file.exists():
+                    state = json.loads(state_file.read_text())
+                    print(f"[{ts()} T+{elapsed():.1f}s] Available channels: {list(state.get('active_games', {}).keys())}")
+                else:
+                    print(f"[{ts()} T+{elapsed():.1f}s] State file does not exist")
+                assert False, "Game not found in state file"
 
 
 class TestHandicapStonesSync:

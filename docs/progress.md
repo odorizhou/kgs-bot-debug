@@ -1,6 +1,6 @@
 # Progress Tracker
 
-## Current Status: Complete! 🎉
+## Current Status: All Tests Stable! 🎉
 
 **Last Updated:** 2026-03-17
 
@@ -15,7 +15,7 @@
 | E2E State Sync Tests | 4 | ✅ All Passing |
 | E2E Game Cycling Tests | 2 | ✅ All Passing |
 | E2E Analysis Sync Tests | 2 | ✅ All Passing |
-| **Total** | **53** | **52/53 passing** (1 flaky) |
+| **Total** | **53** | **53/53 passing** (all stable) |
 
 ---
 
@@ -47,7 +47,7 @@
 | Test | Description | Status |
 |------|-------------|--------|
 | test_game_metadata_captured | Board size, komi, rules, players | ✅ Passing |
-| test_move_history_synced | Historical moves from GAME_JOIN | ⚠️ Flaky (timeout) |
+| test_move_history_synced | Historical moves from GAME_JOIN | ✅ Fixed (was flaky) |
 | test_handicap_stones_captured | Handicap stones from SGF | ✅ Passing |
 | test_board_state_valid | Board state reconstruction | ✅ Passing |
 
@@ -127,6 +127,12 @@ KGS_ROOM_ID=354
 ## Repository
 
 https://github.com/odorizhou/kgs-bot-debug
+
+---
+
+## Observe / GAME_JOIN intermittent history loss
+
+See **[observe_game_join_race_analysis.md](./observe_game_join_race_analysis.md)** for: problem description, dual long-poll race (manual mode main thread vs `polling_thread`), and fix options (serialize KGS session I/O, etc.).
 
 ---
 
@@ -227,3 +233,33 @@ Komi: 0.5
 Handicap: 4
 Analysis daemon socket: ✓ Available
 ```
+
+---
+
+## Flaky Test Fix: test_move_history_synced
+
+### Problem
+The `test_move_history_synced` test was flaky due to timing issues:
+- Used fixed `time.sleep(5)` instead of polling loop
+- Observe command processing takes ~4.5s (room join + poll_messages)
+- GAME_JOIN processing happens AFTER observe returns
+- State file write is debounced at 500ms
+
+### Timeline of Failure
+```
+T+7.5s  Observe command sent
+T+7.5s  Observe result returned (immediate)
+T+12.0s _join_as_observer called (4.5s later)
+T+12.5s Test checks state file (too early - empty active_games)
+```
+
+### Fix Applied
+Replaced fixed sleep with **60-second polling loop**:
+- Checks state file modification time
+- Waits for game to appear in `active_games`
+- Proper timeout handling
+
+### Result
+- All 5 consecutive runs pass consistently
+- Game found in state after ~3 seconds from observe result
+- Test is now stable and reliable
